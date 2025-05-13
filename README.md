@@ -1,5 +1,5 @@
 # Batocera PyGame Downloader
-This app is not endorse any kind of piracy.
+This app does not endorse any kind of piracy.
 
 This is a simple tool to help download games to your console.
 
