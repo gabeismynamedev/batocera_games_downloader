@@ -1,82 +1,12 @@
 [
   {
     "name": "PSP",
-    "list_url": "https://archive.org/metadata/PSNCollectionByGhostware",
+    "list_url": "https://archive.org/metadata/XXXXXXXX",
     "list_json_file_location": "files",
     "list_item_id": "name",
-    "download_url": "https://archive.org/download/PSNCollectionByGhostware",
+    "download_url": "https://archive.org/download/XXXXXX",
     "commands": [],
     "file_format": [".iso"],
     "roms_folder": "psp"
-  },
-  {
-    "name": "NDS",
-    "list_url": "https://archive.org/metadata/nds-collection",
-    "download_url": "https://archive.org/download/nds-collection",
-    "list_json_file_location": "files",
-    "list_item_id": "name",
-    "commands": [],
-    "file_format": [".zip"],
-    "roms_folder": "nds"
-  },
-  {
-    "name": "PSX-PTBR",
-    "list_url": "https://archive.org/metadata/ro-m-s-p-s-1-pt-br-velhos-cartuchos",
-    "download_url": "https://archive.org/download/ro-m-s-p-s-1-pt-br-velhos-cartuchos",
-    "list_json_file_location": "files",
-    "list_item_id": "name",
-    "commands": [],
-    "file_format": [".cue", ".bin", ".chd", ".iso"],
-    "roms_folder": "psx"
-  },
-  {
-    "name": "PS1",
-    "list_url": "https://archive.org/metadata/Centuron-PSX",
-    "download_url": "https://archive.org/download/Centuron-PSX",
-    "list_json_file_location": "files",
-    "list_item_id": "name",
-    "commands": [],
-    "file_format": [".bin", ".chd", ".iso"],
-    "roms_folder": "psx"
-  },
-  {
-    "name": "GBA",
-    "list_url": "https://archive.org/metadata/tsf-2002-gba-roms-collection",
-    "download_url": "https://archive.org/download/tsf-2002-gba-roms-collection",
-    "list_json_file_location": "files",
-    "list_item_id": "name",
-    "commands": [],
-    "file_format": [".gba"],
-    "roms_folder": "gba"
-  },
-  {
-    "name": "N64",
-    "list_url": "https://archive.org/metadata/pack-roms-nintendo-64-eu-us-jap",
-    "download_url": "https://archive.org/download/pack-roms-nintendo-64-eu-us-jap",
-    "list_json_file_location": "files",
-    "list_item_id": "name",
-    "commands": [],
-    "file_format": [".z64"],
-    "roms_folder": "n64"
-  },
-  {
-    "name": "SNES",
-    "list_url": "https://archive.org/metadata/gameplay-snes",
-    "download_url": "https://archive.org/download/gameplay-snes",
-    "list_json_file_location": "files",
-    "list_item_id": "name",
-    "commands": [],
-    "file_format": [".7z"],
-    "roms_folder": "snes"
-  },
-  {
-    "name": "MegaDrive",
-    "list_url": "https://archive.org/metadata/SegaGenesisMegaDriveRomCollectionByGhostware",
-    "download_url": "https://archive.org/download/SegaGenesisMegaDriveRomCollectionByGhostware",
-    "list_json_file_location": "files",
-    "list_item_id": "name",
-    "commands": [],
-    "file_format": [".zip"],
-    "roms_folder": "megadrive"
   }
 ]
