@@ -5,7 +5,7 @@ This is a simple tool to help download games to your console.
 
 This is tested with Knulli RG35xxSP. I dont have time or desire to test in other console.
 
-To install in your console, create a downloader foler inside the pygame roms folder and add those two files, modify the download.json if your links. 
+To install in your console, create a downloader foler inside the pygame roms folder and add those two files, modify the download.json with your links. 
 Add your urls, I am giving examples using internet archive. ( I may delete those examples to avoid people to use to piracy).
 
 On emulationstation rescan all your games, go to the pygame library and the run the app.
