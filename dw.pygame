@@ -1,0 +1,418 @@
+import os
+import sys
+import json
+import pygame
+import requests
+import traceback
+from zipfile import ZipFile
+from io import BytesIO
+from datetime import datetime
+
+# Constants
+JSON_FILE = "/userdata/roms/pygame/downloader/download.json"
+WORK_DIR = "/userdata/py_downloads"
+ROMS_DIR = "/userdata/roms"
+LOG_FILE = "/userdata/roms/pygame/downloader/error.log"
+FPS = 30
+SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
+FONT_SIZE = 28
+SCROLL_DELAY = 150  # milliseconds between scrolls when holding D-pad
+INITIAL_SCROLL_DELAY = 300  # initial delay before continuous scrolling starts
+
+def log_error(error_msg, error_type=None, traceback_str=None):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_message = f"[{timestamp}] ERROR: {error_msg}\n"
+    if error_type:
+        log_message += f"Type: {error_type}\n"
+    if traceback_str:
+        log_message += f"Traceback:\n{traceback_str}\n"
+    log_message += "-" * 80 + "\n"
+    
+    with open(LOG_FILE, "a") as f:
+        f.write(log_message)
+
+# Initialize error log
+with open(LOG_FILE, "w") as f:
+    f.write(f"Error Log - Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    f.write("-" * 80 + "\n")
+
+try:
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption("ROM Downloader")
+    clock = pygame.time.Clock()
+    font = pygame.font.Font(None, FONT_SIZE)
+
+    pygame.joystick.init()
+    joystick = pygame.joystick.Joystick(0)
+    joystick.init()
+
+    WHITE = (255, 255, 255)
+    BLACK = (0, 0, 0)
+    GREEN = (0, 255, 0)
+    GRAY = (180, 180, 180)
+
+    # Load JSON file
+    try:
+        with open(JSON_FILE) as f:
+            data = json.load(f)
+    except Exception as e:
+        log_error("Failed to load JSON file", type(e).__name__, traceback.format_exc())
+        sys.exit(1)
+
+    selected_system = 0
+    selected_games = set()
+    game_list = []
+    mode = "systems"  # systems or games
+    highlighted = 0
+
+    os.makedirs(WORK_DIR, exist_ok=True)
+    os.makedirs(ROMS_DIR, exist_ok=True)
+
+    def format_size(size_bytes):
+        """Convert bytes to human readable format"""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024
+        return f"{size_bytes:.1f} TB"
+
+    def draw_progress_bar(text, percent, downloaded=0, total_size=0, speed=0):
+        screen.fill(WHITE)
+        
+        # Draw title with instructions
+        title_surf = font.render("Download Progress", True, BLACK)
+        screen.blit(title_surf, (20, 10))
+        
+        # Draw current operation
+        text_surf = font.render(text, True, GREEN)
+        screen.blit(text_surf, (20, 40))
+        
+        # Draw progress bar background
+        bar_height = 20
+        bar_y = 70
+        bar_width = min(SCREEN_WIDTH - 80, 600)
+        bar_x = (SCREEN_WIDTH - bar_width) // 2
+        pygame.draw.rect(screen, GRAY, (bar_x, bar_y, bar_width, bar_height))
+        
+        # Draw progress
+        progress_width = int(bar_width * (percent / 100))
+        pygame.draw.rect(screen, GREEN, (bar_x, bar_y, progress_width, bar_height))
+        
+        # Draw percentage text
+        percent_text = f"{percent}%"
+        percent_surf = font.render(percent_text, True, BLACK)
+        percent_x = SCREEN_WIDTH // 2 - percent_surf.get_width() // 2
+        screen.blit(percent_surf, (percent_x, bar_y + 2))
+        
+        # Draw size and speed info
+        if total_size > 0:
+            size_text = f"{format_size(downloaded)} / {format_size(total_size)}"
+            if speed > 0:
+                size_text += f" - {format_size(speed)}/s"
+            size_surf = font.render(size_text, True, BLACK)
+            size_x = SCREEN_WIDTH // 2 - size_surf.get_width() // 2
+            screen.blit(size_surf, (size_x, bar_y + bar_height + 10))
+        
+        # Draw instructions
+        instructions = [
+            "Press A to cancel download",
+            "Please wait while files are being downloaded..."
+        ]
+        
+        y = bar_y + bar_height + 40
+        for instruction in instructions:
+            inst_surf = font.render(instruction, True, GRAY)
+            screen.blit(inst_surf, (SCREEN_WIDTH // 2 - inst_surf.get_width() // 2, y))
+            y += FONT_SIZE + 5
+        
+        pygame.display.flip()
+
+    def draw_menu(title, items, selected_indices):
+        screen.fill(WHITE)
+        y = 10  # Start closer to top
+        
+        # Draw title with instructions
+        title_surf = font.render(title, True, BLACK)
+        screen.blit(title_surf, (20, y))
+        y += FONT_SIZE + 10
+
+        # Draw instructions based on mode
+        if mode == "systems":
+            instructions = [
+                "Use D-pad to navigate",
+                "Press B to select a system",
+                "Press A to go back"
+            ]
+        else:  # games mode
+            instructions = [
+                "Use D-pad to navigate",
+                "Press B to select/unselect games",
+                "Press A to go back to systems",
+                f"Press START to download {len(selected_games)} selected games"
+            ]
+        
+        # Draw instructions
+        for instruction in instructions:
+            inst_surf = font.render(instruction, True, GRAY)
+            screen.blit(inst_surf, (20, y))
+            y += FONT_SIZE + 5
+        
+        y += 20  # Add some space after instructions
+        
+        # Calculate visible items based on screen height
+        items_per_page = (SCREEN_HEIGHT - y - 50) // (FONT_SIZE + 10)  # Leave space for bottom message
+        start_idx = max(0, highlighted - items_per_page // 2)
+        visible_items = items[start_idx:start_idx + items_per_page]
+        
+        # Draw items
+        for i, item in enumerate(visible_items):
+            actual_idx = start_idx + i
+            # Color is green if item is highlighted or selected
+            color = GREEN if actual_idx == highlighted or actual_idx in selected_indices else BLACK
+            prefix = "[x] " if actual_idx in selected_indices else "[ ] " if mode == "games" else ""
+            item_surf = font.render(prefix + item, True, color)
+            screen.blit(item_surf, (20, y))
+            y += FONT_SIZE + 10
+
+        # Draw bottom message if games are selected
+        if mode == "games" and selected_games:
+            message = f"Selected: {len(selected_games)} games"
+            message_surf = font.render(message, True, GREEN)
+            message_y = SCREEN_HEIGHT - 50
+            screen.blit(message_surf, (20, message_y))
+
+        pygame.display.flip()
+
+    def draw_loading_message(message):
+        screen.fill(WHITE)
+        
+        # Draw title
+        title_surf = font.render("Loading", True, BLACK)
+        screen.blit(title_surf, (20, 10))
+        
+        # Draw message
+        message_surf = font.render(message, True, BLACK)
+        screen.blit(message_surf, (20, 50))
+        
+        # Draw instructions
+        instructions = [
+            "Please wait...",
+            "Press A to cancel"
+        ]
+        
+        y = 100
+        for instruction in instructions:
+            inst_surf = font.render(instruction, True, GRAY)
+            screen.blit(inst_surf, (SCREEN_WIDTH // 2 - inst_surf.get_width() // 2, y))
+            y += FONT_SIZE + 5
+        
+        pygame.display.flip()
+
+    def download_files(system, selected_game_indices):
+        try:
+            sys_data = data[system]
+            download_url = sys_data['download_url']
+            formats = sys_data.get('file_format', [])
+            roms_folder = os.path.join(ROMS_DIR, sys_data['roms_folder'])
+            os.makedirs(roms_folder, exist_ok=True)
+
+            selected_files = [game_list[i] for i in selected_game_indices]
+            total = len(selected_files)
+            cancelled = False
+
+            for idx, filename in enumerate(selected_files):
+                if cancelled:
+                    break
+                
+                # Calculate overall progress
+                overall_progress = int((idx / total) * 100)
+                draw_progress_bar(f"Downloading {filename} ({idx+1}/{total})", overall_progress)
+                
+                url = f"{download_url}/{filename}"
+                try:
+                    r = requests.get(url, stream=True, timeout=10)
+                    r.raise_for_status()
+                    total_size = int(r.headers.get('content-length', 0))
+                    downloaded = 0
+                    start_time = pygame.time.get_ticks()
+                    last_update = start_time
+                    last_downloaded = 0
+                    
+                    file_path = os.path.join(WORK_DIR, filename)
+                    with open(file_path, 'wb') as f:
+                        for chunk in r.iter_content(1024):
+                            # Check for cancel button
+                            for event in pygame.event.get():
+                                if event.type == pygame.JOYBUTTONDOWN and event.button == 3:
+                                    cancelled = True
+                                    break
+                            if cancelled:
+                                break
+                            
+                            if chunk:
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                
+                                # Calculate speed every 500ms
+                                current_time = pygame.time.get_ticks()
+                                if current_time - last_update >= 500:
+                                    speed = (downloaded - last_downloaded) * 2  # *2 because we update every 500ms
+                                    last_downloaded = downloaded
+                                    last_update = current_time
+                                    
+                                    # Calculate file progress
+                                    file_progress = int((downloaded / total_size) * 100) if total_size > 0 else 0
+                                    # Calculate overall progress including current file
+                                    current_progress = int(((idx + (file_progress / 100)) / total) * 100)
+                                    draw_progress_bar(f"Downloading {filename} ({idx+1}/{total})", 
+                                                    current_progress, downloaded, total_size, speed)
+
+                    if cancelled:
+                        # Clean up the current file if download was cancelled
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                        break
+
+                    if filename.endswith(".zip"):
+                        draw_progress_bar(f"Extracting {filename}...", 0)
+                        with ZipFile(file_path, 'r') as zip_ref:
+                            zip_ref.extractall(WORK_DIR)
+
+                    # Move files to ROMS
+                    draw_progress_bar(f"Moving files to ROMS folder...", 0)
+                    for f in os.listdir(WORK_DIR):
+                        if any(f.endswith(ext) for ext in formats):
+                            os.rename(os.path.join(WORK_DIR, f), os.path.join(roms_folder, f))
+
+                    # Clean work dir
+                    for f in os.listdir(WORK_DIR):
+                        os.remove(os.path.join(WORK_DIR, f))
+
+                except Exception as e:
+                    log_error(f"Failed to download {filename}", type(e).__name__, traceback.format_exc())
+                
+            if cancelled:
+                draw_loading_message("Download cancelled")
+                pygame.time.wait(1000)  # Show the message for 1 second
+        except Exception as e:
+            log_error(f"Error in download_files for system {system}", type(e).__name__, traceback.format_exc())
+
+    def list_files(system):
+        try:
+            draw_loading_message(f"Loading games for {data[system]['name']}...")
+            sys_data = data[system]
+            list_url = sys_data['list_url']
+            formats = sys_data.get('file_format', [])
+            array_path = sys_data.get('list_json_file_location', "files")
+            file_id = sys_data.get('list_item_id', "name")
+            r = requests.get(list_url, timeout=10)
+            response = r.json()
+            
+            # Handle the response with "files" array
+            if isinstance(response, dict) and "files" in response:
+                files = response[array_path]
+                if isinstance(files, list):
+                    return [f[file_id] for f in files if any(f[file_id].lower().endswith(ext.lower()) for ext in formats)]
+            return []
+        except Exception as e:
+            log_error(f"Failed to fetch list for system {system}", type(e).__name__, traceback.format_exc())
+            return []
+
+    def find_next_letter_index(items, current_index, direction):
+        """Find the next item that starts with a different letter"""
+        if not items:
+            return current_index
+        
+        current_letter = items[current_index][0].upper()
+        if direction > 0:  # Moving right/forward
+            for i in range(current_index + 1, len(items)):
+                if items[i][0].upper() > current_letter:
+                    return i
+        else:  # Moving left/backward
+            for i in range(current_index - 1, -1, -1):
+                if items[i][0].upper() < current_letter:
+                    return i
+        return current_index
+
+    # Main loop
+    running = True
+    button_delay = 0
+    last_scroll_time = 0
+    is_scrolling = False
+
+    while running:
+        try:
+            clock.tick(FPS)
+            current_time = pygame.time.get_ticks()
+                
+            if mode == "systems":
+                draw_menu("Select a System", [d['name'] for d in data], set())
+            elif mode == "games":
+                if game_list:  # Only draw if we have games
+                    draw_menu("Select Games", game_list, selected_games)
+                else:
+                    draw_loading_message("No games found for this system")
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.JOYBUTTONDOWN:
+                    # Button 4 = Select, Button 3 = Back, Button 10 = Start Download
+                    if event.button == 4:  # Select
+                        if mode == "systems":
+                            selected_system = highlighted  # Use the highlighted index
+                            game_list = list_files(selected_system)
+                            selected_games = set()
+                            mode = "games"
+                            highlighted = 0
+                        elif mode == "games":
+                            if highlighted in selected_games:
+                                selected_games.remove(highlighted)
+                            else:
+                                selected_games.add(highlighted)
+                    elif event.button == 3:  # Back
+                        if mode == "games":
+                            mode = "systems"
+                            highlighted = 0
+                    elif event.button == 10:  # Start Download
+                        if mode == "games" and selected_games:
+                            draw_loading_message("Starting download...")
+                            download_files(selected_system, selected_games)
+                            mode = "systems"
+                            highlighted = 0
+                elif event.type == pygame.JOYHATMOTION:
+                    hat = joystick.get_hat(0)
+                    if hat[1] != 0:  # Up or Down
+                        if not is_scrolling:
+                            # Initial press
+                            highlighted = (highlighted - 1) % len(game_list if mode == "games" else data) if hat[1] == 1 else (highlighted + 1) % len(game_list if mode == "games" else data)
+                            last_scroll_time = current_time
+                            is_scrolling = True
+                    elif hat[0] != 0 and mode == "games":  # Left or Right (only in games mode)
+                        items = game_list
+                        if hat[0] < 0:  # Left
+                            highlighted = find_next_letter_index(items, highlighted, -1)
+                        else:  # Right
+                            highlighted = find_next_letter_index(items, highlighted, 1)
+                    else:
+                        is_scrolling = False
+
+            # Handle continuous scrolling
+            if is_scrolling and mode == "games":
+                hat = joystick.get_hat(0)
+                if hat[1] != 0:
+                    if current_time - last_scroll_time >= (INITIAL_SCROLL_DELAY if current_time - last_scroll_time < INITIAL_SCROLL_DELAY else SCROLL_DELAY):
+                        highlighted = (highlighted - 1) % len(game_list) if hat[1] == 1 else (highlighted + 1) % len(game_list)
+                        last_scroll_time = current_time
+                else:
+                    is_scrolling = False
+
+        except Exception as e:
+            log_error("Error in main loop", type(e).__name__, traceback.format_exc())
+
+except Exception as e:
+    log_error("Fatal error during initialization", type(e).__name__, traceback.format_exc())
+finally:
+    pygame.quit()
+    sys.exit()
